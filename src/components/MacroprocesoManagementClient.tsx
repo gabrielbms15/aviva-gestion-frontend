@@ -22,14 +22,20 @@ type DocRef = { name: string; source: string; link: string };
 type ObsRow = { text: string };
 type RequirementRow = { text: string };
 
-type ScoreData = {
-    status: ScoreStatus;
+/* Shared details per criterio (not per score anymore) */
+type CriterioDetails = {
     requirements: RequirementRow[];
     docRefs: DocRef[];
     observations: ObsRow[];
 };
 
-type CriterioState = { [scoreIdx: number]: ScoreData };
+type ScoreEntry = { status: ScoreStatus };
+
+type CriterioState = {
+    scores: { [scoreIdx: number]: ScoreEntry };
+    details: CriterioDetails;
+};
+
 export type AllState = { [criterioId: string]: CriterioState };
 
 export type LeaderInfo = {
@@ -68,20 +74,20 @@ export const STATUS_DOT: Record<ScoreStatus, { color: string; glow: string; labe
 };
 
 /* ── Helpers ─────────────────────────────────────────── */
-function initScoreData(): ScoreData {
-    return { status: "NO_COMPLETADO", requirements: [{ text: "" }], docRefs: [{ name: "", source: "", link: "" }], observations: [{ text: "" }] };
+function initDetails(): CriterioDetails {
+    return { requirements: [{ text: "" }], docRefs: [{ name: "", source: "", link: "" }], observations: [{ text: "" }] };
 }
 function initCriterioState(c: CriterioItem): CriterioState {
-    const s: CriterioState = {};
-    c.scores.forEach((_, i) => { s[i] = initScoreData(); });
-    return s;
+    const scores: CriterioState["scores"] = {};
+    c.scores.forEach((_, i) => { scores[i] = { status: "NO_COMPLETADO" }; });
+    return { scores, details: initDetails() };
 }
 function deriveStatus(criterioIds: string[], state: AllState): ScoreStatus {
     let allDone = true, anyProgress = false;
     for (const id of criterioIds) {
         const cs = state[id]; if (!cs) { allDone = false; continue; }
-        for (const k of Object.keys(cs)) {
-            const st = cs[Number(k)].status;
+        for (const k of Object.keys(cs.scores)) {
+            const st = cs.scores[Number(k)].status;
             if (st !== "COMPLETADO") allDone = false;
             if (st === "EN_PROGRESO") anyProgress = true;
         }
@@ -110,14 +116,23 @@ export default function MacroprocesoManagementClient({ criterios, grupoLabels, l
     useEffect(() => {
         try {
             const savedState = localStorage.getItem(lsStateKey);
-            if (savedState) setState(JSON.parse(savedState) as AllState);
+            if (savedState) {
+                const parsed = JSON.parse(savedState);
+                // Validate new format: each entry must have .scores and .details
+                const isNewFormat = parsed && typeof parsed === "object" &&
+                    Object.values(parsed).every((v) =>
+                        v && typeof v === "object" && "scores" in (v as object) && "details" in (v as object)
+                    );
+                if (isNewFormat) setState(parsed as AllState);
+                else localStorage.removeItem(lsStateKey); // wipe stale old-format data
+            }
             const savedLeader = localStorage.getItem(lsLeaderKey);
             if (savedLeader) setLeader(JSON.parse(savedLeader) as LeaderInfo);
         } catch { /* noop */ }
         setHydrated(true);
     }, [lsStateKey, lsLeaderKey]);
 
-    // Persist state to localStorage on change (client-side only — hydrated guard prevents write-on-mount)
+    // Persist state to localStorage on change
     useEffect(() => {
         if (!hydrated) return;
         try { localStorage.setItem(lsStateKey, JSON.stringify(state)); } catch { /* storage full */ }
@@ -129,59 +144,77 @@ export default function MacroprocesoManagementClient({ criterios, grupoLabels, l
     }, [leader, lsLeaderKey, hydrated]);
 
     const [expandedCriterio, setExpandedCriterio] = useState<string | null>(null);
-    const [expandedScores, setExpandedScores] = useState<Record<string, boolean>>({});
+    const [expandedDetails, setExpandedDetails] = useState<Record<string, boolean>>({});
 
     const grupos = Array.from(new Set(criterios.map((c) => c.grupo)));
 
-    const toggleScoreExpand = useCallback((key: string) => {
-        setExpandedScores(prev => ({ ...prev, [key]: !prev[key] }));
+    const toggleDetails = useCallback((id: string) => {
+        setExpandedDetails(prev => ({ ...prev, [id]: !prev[id] }));
     }, []);
 
+    /* ── Score status ── */
     const setScoreStatus = (criterioId: string, scoreIdx: number, status: ScoreStatus) => {
-        setState(prev => ({ ...prev, [criterioId]: { ...prev[criterioId], [scoreIdx]: { ...prev[criterioId][scoreIdx], status } } }));
+        setState(prev => ({
+            ...prev,
+            [criterioId]: {
+                ...prev[criterioId],
+                scores: { ...prev[criterioId].scores, [scoreIdx]: { status } },
+            },
+        }));
     };
 
-    const addReq = (cid: string, si: number) => setState(prev => {
-        const sd = prev[cid][si];
-        return { ...prev, [cid]: { ...prev[cid], [si]: { ...sd, requirements: [...sd.requirements, { text: "" }] } } };
-    });
-    const updateReq = (cid: string, si: number, ri: number, text: string) => setState(prev => {
-        const reqs = [...prev[cid][si].requirements]; reqs[ri] = { text };
-        return { ...prev, [cid]: { ...prev[cid], [si]: { ...prev[cid][si], requirements: reqs } } };
-    });
-    const removeReq = (cid: string, si: number, ri: number) => setState(prev => {
-        const reqs = prev[cid][si].requirements.filter((_, i) => i !== ri);
-        if (reqs.length === 0) reqs.push({ text: "" });
-        return { ...prev, [cid]: { ...prev[cid], [si]: { ...prev[cid][si], requirements: reqs } } };
-    });
+    /* ── Helpers: get details safely ── */
+    const getDetails = (cid: string): CriterioDetails =>
+        state[cid]?.details ?? initDetails();
 
-    const addDocRef = (cid: string, si: number) => setState(prev => {
-        const sd = prev[cid][si];
-        return { ...prev, [cid]: { ...prev[cid], [si]: { ...sd, docRefs: [...sd.docRefs, { name: "", source: "", link: "" }] } } };
-    });
-    const updateDocRef = (cid: string, si: number, di: number, field: keyof DocRef, value: string) => setState(prev => {
-        const docs = [...prev[cid][si].docRefs]; docs[di] = { ...docs[di], [field]: value };
-        return { ...prev, [cid]: { ...prev[cid], [si]: { ...prev[cid][si], docRefs: docs } } };
-    });
-    const removeDocRef = (cid: string, si: number, di: number) => setState(prev => {
-        const docs = prev[cid][si].docRefs.filter((_, i) => i !== di);
-        if (docs.length === 0) docs.push({ name: "", source: "", link: "" });
-        return { ...prev, [cid]: { ...prev[cid], [si]: { ...prev[cid][si], docRefs: docs } } };
-    });
+    const updateDetails = (cid: string, patch: Partial<CriterioDetails>) => {
+        setState(prev => ({
+            ...prev,
+            [cid]: { ...prev[cid], details: { ...prev[cid].details, ...patch } },
+        }));
+    };
 
-    const addObs = (cid: string, si: number) => setState(prev => {
-        const sd = prev[cid][si];
-        return { ...prev, [cid]: { ...prev[cid], [si]: { ...sd, observations: [...sd.observations, { text: "" }] } } };
-    });
-    const updateObs = (cid: string, si: number, oi: number, text: string) => setState(prev => {
-        const obs = [...prev[cid][si].observations]; obs[oi] = { text };
-        return { ...prev, [cid]: { ...prev[cid], [si]: { ...prev[cid][si], observations: obs } } };
-    });
-    const removeObs = (cid: string, si: number, oi: number) => setState(prev => {
-        const obs = prev[cid][si].observations.filter((_, i) => i !== oi);
-        if (obs.length === 0) obs.push({ text: "" });
-        return { ...prev, [cid]: { ...prev[cid], [si]: { ...prev[cid][si], observations: obs } } };
-    });
+    /* ── Requirements ── */
+    const addReq = (cid: string) => {
+        const d = getDetails(cid);
+        updateDetails(cid, { requirements: [...d.requirements, { text: "" }] });
+    };
+    const updateReq = (cid: string, ri: number, text: string) => {
+        const reqs = [...getDetails(cid).requirements]; reqs[ri] = { text };
+        updateDetails(cid, { requirements: reqs });
+    };
+    const removeReq = (cid: string, ri: number) => {
+        const reqs = getDetails(cid).requirements.filter((_, i) => i !== ri);
+        updateDetails(cid, { requirements: reqs.length ? reqs : [{ text: "" }] });
+    };
+
+    /* ── DocRefs ── */
+    const addDocRef = (cid: string) => {
+        const d = getDetails(cid);
+        updateDetails(cid, { docRefs: [...d.docRefs, { name: "", source: "", link: "" }] });
+    };
+    const updateDocRef = (cid: string, di: number, field: keyof DocRef, value: string) => {
+        const docs = [...getDetails(cid).docRefs]; docs[di] = { ...docs[di], [field]: value };
+        updateDetails(cid, { docRefs: docs });
+    };
+    const removeDocRef = (cid: string, di: number) => {
+        const docs = getDetails(cid).docRefs.filter((_, i) => i !== di);
+        updateDetails(cid, { docRefs: docs.length ? docs : [{ name: "", source: "", link: "" }] });
+    };
+
+    /* ── Observations ── */
+    const addObs = (cid: string) => {
+        const d = getDetails(cid);
+        updateDetails(cid, { observations: [...d.observations, { text: "" }] });
+    };
+    const updateObs = (cid: string, oi: number, text: string) => {
+        const obs = [...getDetails(cid).observations]; obs[oi] = { text };
+        updateDetails(cid, { observations: obs });
+    };
+    const removeObs = (cid: string, oi: number) => {
+        const obs = getDetails(cid).observations.filter((_, i) => i !== oi);
+        updateDetails(cid, { observations: obs.length ? obs : [{ text: "" }] });
+    };
 
     const servicioOptions = leader.unidad === "UPSS" ? UPSS_OPTIONS : leader.unidad === "UPS" ? UPS_OPTIONS : [];
     const inputClass = "w-full text-sm px-3 py-2.5 rounded-lg border border-deep-blue/15 bg-white text-black placeholder:text-black/30 focus:outline-none focus:ring-2 focus:ring-accent-blue/25 focus:border-accent-blue/40 transition-all";
@@ -189,7 +222,7 @@ export default function MacroprocesoManagementClient({ criterios, grupoLabels, l
     return (
         <div className="w-full">
             {/* ── Leader Info ──────────────────────────────── */}
-            <div className="mb-8">
+            <div className="liquid-glass mb-8">
                 <h2 className="text-sm font-display font-bold text-deep-blue/60 uppercase tracking-wider mb-4 flex items-center gap-2">
                     <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>person</span>
                     Información del Responsable
@@ -236,7 +269,7 @@ export default function MacroprocesoManagementClient({ criterios, grupoLabels, l
                     );
                 })}
                 <div className="h-4 w-px bg-deep-blue/10 mx-1" />
-                <span className="text-xs text-deep-blue/40">Clic en las bolitas para cambiar estado · Clic en fila para expandir</span>
+                <span className="text-xs text-deep-blue/40">Clic en las bolitas para cambiar estado · Clic en criterio para expandir</span>
             </div>
 
             {/* ── Criteria Groups ──────────────────────────── */}
@@ -258,28 +291,42 @@ export default function MacroprocesoManagementClient({ criterios, grupoLabels, l
 
                         <div className="flex flex-col gap-5">
                             {items.map((criterio) => {
-                                const allDone = criterio.scores.every((_, i) => state[criterio.id]?.[i]?.status === "COMPLETADO");
-                                const anyProg = criterio.scores.some((_, i) => state[criterio.id]?.[i]?.status === "EN_PROGRESO");
+                                const cs = state[criterio.id];
+                                const allDone = criterio.scores.every((_, i) => cs?.scores[i]?.status === "COMPLETADO");
+                                const anyProg = criterio.scores.some((_, i) => cs?.scores[i]?.status === "EN_PROGRESO");
                                 const cardStatus: ScoreStatus = allDone ? "COMPLETADO" : anyProg ? "EN_PROGRESO" : "NO_COMPLETADO";
                                 const cd = STATUS_DOT[cardStatus];
                                 const isExpanded = expandedCriterio === criterio.id;
+                                const isDetailsExpanded = !!expandedDetails[criterio.id];
+                                const details = getDetails(criterio.id);
 
                                 return (
                                     <div key={criterio.id} className="rounded-2xl bg-white border border-deep-blue/10 shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden">
                                         {/* Card header */}
-                                        <button
-                                            onClick={() => setExpandedCriterio(prev => prev === criterio.id ? null : criterio.id)}
-                                            className="w-full flex items-center justify-between px-5 py-4 bg-deep-blue cursor-pointer group transition-colors hover:bg-brand-blue"
-                                        >
-                                            <div className="flex items-center gap-3">
-                                                <span className={`w-3.5 h-3.5 rounded-full border-2 border-white/30 ${cd.color} ${cd.glow}`} title={cd.label} />
-                                                <span className="font-display font-black text-base text-white tracking-tight">{criterio.label}</span>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${cardStatus === "COMPLETADO" ? "bg-emerald-500/20 text-emerald-200" : cardStatus === "EN_PROGRESO" ? "bg-amber-400/20 text-amber-200" : "bg-red-500/20 text-red-200"}`}>{cd.label}</span>
-                                                <span className={`material-symbols-outlined text-white/60 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} style={{ fontSize: "20px" }}>expand_more</span>
-                                            </div>
-                                        </button>
+                                        <div className="flex items-center bg-deep-blue hover:bg-brand-blue transition-colors">
+                                            {/* Main expand button */}
+                                            <button
+                                                onClick={() => setExpandedCriterio(prev => prev === criterio.id ? null : criterio.id)}
+                                                className="flex-1 flex items-center justify-between px-5 py-4 cursor-pointer group"
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <span className={`w-3.5 h-3.5 rounded-full border-2 border-white/30 ${cd.color} ${cd.glow}`} title={cd.label} />
+                                                    <span className="font-display font-black text-base text-white tracking-tight">{criterio.label}</span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${cardStatus === "COMPLETADO" ? "bg-emerald-500/20 text-emerald-200" : cardStatus === "EN_PROGRESO" ? "bg-amber-400/20 text-amber-200" : "bg-red-500/20 text-red-200"}`}>{cd.label}</span>
+                                                    <span className={`material-symbols-outlined text-white/60 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} style={{ fontSize: "20px" }}>expand_more</span>
+                                                </div>
+                                            </button>
+                                            {/* Details toggle button — always visible */}
+                                            <button
+                                                onClick={() => toggleDetails(criterio.id)}
+                                                title={isDetailsExpanded ? "Ocultar gestión" : "Ver gestión"}
+                                                className={`flex-shrink-0 flex items-center gap-1.5 px-4 py-4 border-l border-white/10 transition-colors cursor-pointer ${isDetailsExpanded ? "text-accent-blue bg-white/10" : "text-white/40 hover:text-white/80 hover:bg-white/5"}`}
+                                            >
+                                                <span className="material-symbols-outlined" style={{ fontSize: "20px" }}>assignment</span>
+                                            </button>
+                                        </div>
 
                                         {/* Definition bar — always visible */}
                                         <div className={`px-5 py-3 border-b ${isExpanded ? "bg-accent-blue/8 border-accent-blue/15" : "bg-light-bg/60 border-deep-blue/6"} transition-colors duration-200`}>
@@ -293,104 +340,91 @@ export default function MacroprocesoManagementClient({ criterios, grupoLabels, l
                                         {isExpanded && (
                                             <div className="divide-y divide-deep-blue/5">
                                                 {criterio.scores.map((scoreLevel, idx) => {
-                                                    const sd = state[criterio.id]?.[idx] ?? initScoreData();
-                                                    const dot = STATUS_DOT[sd.status];
-                                                    const scoreKey = `${criterio.id}-${idx}`;
-                                                    const isScoreExpanded = !!expandedScores[scoreKey];
+                                                    const scoreEntry = cs?.scores[idx] ?? { status: "NO_COMPLETADO" as ScoreStatus };
+                                                    const dot = STATUS_DOT[scoreEntry.status];
 
                                                     return (
-                                                        <div key={idx}>
-                                                            <div
-                                                                className="flex items-start gap-3 px-5 py-3.5 cursor-pointer hover:bg-light-bg/40 transition-colors"
-                                                                onClick={() => toggleScoreExpand(scoreKey)}
-                                                            >
-                                                                <div className="flex-shrink-0 mt-0.5 w-7 h-7 rounded-lg bg-deep-blue/10 flex items-center justify-center font-bold text-sm text-deep-blue">{scoreLevel.score}</div>
-                                                                <p className="flex-1 text-sm text-black leading-relaxed pt-0.5">{scoreLevel.description}</p>
-                                                                <div className="flex-shrink-0 flex items-center gap-1.5 ml-2 mt-1" onClick={(e) => e.stopPropagation()}>
-                                                                    {(["NO_COMPLETADO", "EN_PROGRESO", "COMPLETADO"] as ScoreStatus[]).map((st) => {
-                                                                        const d = STATUS_DOT[st]; const active = sd.status === st;
-                                                                        return (
-                                                                            <button key={st} title={d.label} onClick={() => setScoreStatus(criterio.id, idx, st)}
-                                                                                className={`w-4 h-4 rounded-full border-2 transition-all duration-200 hover:scale-125 active:scale-95 ${active ? `${d.color} border-transparent ${d.glow}` : `${d.color} opacity-25 border-transparent hover:opacity-50`}`}
-                                                                            />
-                                                                        );
-                                                                    })}
-                                                                </div>
-                                                                <span className={`material-symbols-outlined text-deep-blue/30 ml-1 mt-0.5 transition-transform duration-200 ${isScoreExpanded ? "rotate-180" : ""}`} style={{ fontSize: "18px" }}>expand_more</span>
+                                                        <div key={idx} className="flex items-start gap-3 px-5 py-3.5">
+                                                            <div className="flex-shrink-0 mt-0.5 w-7 h-7 rounded-lg bg-deep-blue/10 flex items-center justify-center font-bold text-sm text-deep-blue">{scoreLevel.score}</div>
+                                                            <p className="flex-1 text-sm text-black leading-relaxed pt-0.5">{scoreLevel.description}</p>
+                                                            <div className="flex-shrink-0 flex items-center gap-1.5 ml-2 mt-1">
+                                                                {(["NO_COMPLETADO", "EN_PROGRESO", "COMPLETADO"] as ScoreStatus[]).map((st) => {
+                                                                    const d = STATUS_DOT[st]; const active = scoreEntry.status === st;
+                                                                    return (
+                                                                        <button key={st} title={d.label} onClick={() => setScoreStatus(criterio.id, idx, st)}
+                                                                            className={`w-4 h-4 rounded-full border-2 transition-all duration-200 hover:scale-125 active:scale-95 ${active ? `${d.color} border-transparent ${d.glow}` : `${d.color} opacity-25 border-transparent hover:opacity-50`}`}
+                                                                        />
+                                                                    );
+                                                                })}
                                                             </div>
-
-                                                            {isScoreExpanded && (
-                                                                <div className="px-5 pb-5 pt-3 bg-slate-50 border-t border-deep-blue/5">
-                                                                    {/* Requerimientos */}
-                                                                    <DetailSection icon="checklist" label="Requerimientos" onAdd={() => addReq(criterio.id, idx)} addLabel="Añadir Requerimiento">
-                                                                        {sd.requirements.map((r, ri) => (
-                                                                            <RowInput key={ri} value={r.text} placeholder={`Requerimiento ${ri + 1}...`}
-                                                                                onChange={(v) => updateReq(criterio.id, idx, ri, v)}
-                                                                                onRemove={sd.requirements.length > 1 ? () => removeReq(criterio.id, idx, ri) : undefined}
-                                                                            />
-                                                                        ))}
-                                                                    </DetailSection>
-
-                                                                    {/* Documento de Referencia */}
-                                                                    <DetailSection icon="description" label="Documento de Referencia" onAdd={() => addDocRef(criterio.id, idx)} addLabel="Añadir Documento">
-                                                                        {sd.docRefs.map((d, di) => (
-                                                                            <div key={di} className="flex items-center gap-2">
-                                                                                {/* Document Name - 1/2 of total width */}
-                                                                                <div className="basis-1/2 flex-shrink-0">
-                                                                                    <input type="text" value={d.name} onChange={(e) => updateDocRef(criterio.id, idx, di, "name", e.target.value)} placeholder="Nombre del documento"
-                                                                                        className="w-full text-sm px-3 py-2 rounded-lg border border-deep-blue/12 bg-white text-black placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-accent-blue/25 focus:border-accent-blue/40 transition-all shadow-sm" />
-                                                                                </div>
-
-                                                                                {/* Second Half - Split between Select (Narrower) and URL (Wider) */}
-                                                                                <div className="flex-1 flex items-center gap-2 overflow-hidden">
-                                                                                    {/* Platform Select - 1/3 of this container (~1/6 of total) */}
-                                                                                    <select value={d.source} onChange={(e) => updateDocRef(criterio.id, idx, di, "source", e.target.value)}
-                                                                                        className="basis-1/3 flex-shrink-0 text-sm px-2 py-2 rounded-lg border border-deep-blue/12 bg-white text-black focus:outline-none focus:ring-2 focus:ring-accent-blue/25 focus:border-accent-blue/40 transition-all shadow-sm cursor-pointer whitespace-nowrap overflow-hidden text-ellipsis">
-                                                                                        <option value="">Plataforma...</option>
-                                                                                        <option value="Rankmi SLC">Rankmi SLC</option>
-                                                                                        <option value="Rankmi SLO">Rankmi SLO</option>
-                                                                                        <option value="SharePoint SLC">SharePoint SLC</option>
-                                                                                        <option value="SharePoint SLO">SharePoint SLO</option>
-                                                                                        <option value="Capacita">Capacita</option>
-                                                                                    </select>
-
-                                                                                    {/* URL and Open Link Button - Remaining 2/3 (~1/3 of total) */}
-                                                                                    <div className="flex-1 flex items-center gap-1.5 overflow-hidden">
-                                                                                        <input type="url" value={d.link} onChange={(e) => updateDocRef(criterio.id, idx, di, "link", e.target.value)} placeholder="https://..."
-                                                                                            className="flex-1 min-w-0 text-sm px-3 py-2 rounded-lg border border-deep-blue/12 bg-white text-black placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-accent-blue/25 focus:border-accent-blue/40 transition-all shadow-sm" />
-
-                                                                                        <a href={d.link || "#"} target={d.link ? "_blank" : undefined} rel="noopener noreferrer"
-                                                                                            className={`flex-shrink-0 p-1.5 rounded-lg transition-colors ${d.link ? "bg-accent-blue text-white hover:bg-brand-blue" : "bg-black/5 text-black/20 pointer-events-none"}`}
-                                                                                            title={d.link ? "Abrir" : "Sin enlace"}>
-                                                                                            <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>open_in_new</span>
-                                                                                        </a>
-                                                                                    </div>
-
-                                                                                    {/* Delete button (only if more than 1) */}
-                                                                                    {sd.docRefs.length > 1 && (
-                                                                                        <button onClick={() => removeDocRef(criterio.id, idx, di)} className="flex-shrink-0 p-1.5 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors" title="Eliminar">
-                                                                                            <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>close</span>
-                                                                                        </button>
-                                                                                    )}
-                                                                                </div>
-                                                                            </div>
-                                                                        ))}
-                                                                    </DetailSection>
-
-                                                                    {/* Observaciones */}
-                                                                    <DetailSection icon="chat_bubble" label="Observaciones" onAdd={() => addObs(criterio.id, idx)} addLabel="Añadir Observación">
-                                                                        {sd.observations.map((o, oi) => (
-                                                                            <RowInput key={oi} value={o.text} placeholder={`Observación ${oi + 1}...`}
-                                                                                onChange={(v) => updateObs(criterio.id, idx, oi, v)}
-                                                                                onRemove={sd.observations.length > 1 ? () => removeObs(criterio.id, idx, oi) : undefined}
-                                                                            />
-                                                                        ))}
-                                                                    </DetailSection>
-                                                                </div>
-                                                            )}
                                                         </div>
                                                     );
                                                 })}
+                                            </div>
+                                        )}
+
+                                        {/* ── Details panel — per criterio ── */}
+                                        {isDetailsExpanded && (
+                                            <div className="px-5 pb-5 pt-4 bg-slate-50 border-t border-deep-blue/8">
+                                                {/* Requerimientos */}
+                                                <DetailSection icon="checklist" label="Requerimientos" onAdd={() => addReq(criterio.id)} addLabel="Añadir Requerimiento">
+                                                    {details.requirements.map((r, ri) => (
+                                                        <RowInput key={ri} value={r.text} placeholder={`Requerimiento ${ri + 1}...`}
+                                                            onChange={(v) => updateReq(criterio.id, ri, v)}
+                                                            onRemove={details.requirements.length > 1 ? () => removeReq(criterio.id, ri) : undefined}
+                                                        />
+                                                    ))}
+                                                </DetailSection>
+
+                                                {/* Documento de Referencia */}
+                                                <DetailSection icon="description" label="Documento de Referencia" onAdd={() => addDocRef(criterio.id)} addLabel="Añadir Documento">
+                                                    {details.docRefs.map((d, di) => (
+                                                        <div key={di} className="flex items-center gap-2">
+                                                            {/* Document Name - 1/2 */}
+                                                            <div className="basis-1/2 flex-shrink-0">
+                                                                <input type="text" value={d.name} onChange={(e) => updateDocRef(criterio.id, di, "name", e.target.value)} placeholder="Nombre del documento"
+                                                                    className="w-full text-sm px-3 py-2 rounded-lg border border-deep-blue/12 bg-white text-black placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-accent-blue/25 focus:border-accent-blue/40 transition-all shadow-sm" />
+                                                            </div>
+
+                                                            {/* Second half: Select (1/3 of half) + URL (2/3 of half) */}
+                                                            <div className="flex-1 flex items-center gap-2 overflow-hidden">
+                                                                <select value={d.source} onChange={(e) => updateDocRef(criterio.id, di, "source", e.target.value)}
+                                                                    className="basis-1/3 flex-shrink-0 text-sm px-2 py-2 rounded-lg border border-deep-blue/12 bg-white text-black focus:outline-none focus:ring-2 focus:ring-accent-blue/25 focus:border-accent-blue/40 transition-all shadow-sm cursor-pointer">
+                                                                    <option value="">Plataforma...</option>
+                                                                    <option value="Rankmi SLC">Rankmi SLC</option>
+                                                                    <option value="Rankmi SLO">Rankmi SLO</option>
+                                                                    <option value="SharePoint SLC">SharePoint SLC</option>
+                                                                    <option value="SharePoint SLO">SharePoint SLO</option>
+                                                                    <option value="Capacita">Capacita</option>
+                                                                </select>
+                                                                <div className="flex-1 flex items-center gap-1.5 overflow-hidden">
+                                                                    <input type="url" value={d.link} onChange={(e) => updateDocRef(criterio.id, di, "link", e.target.value)} placeholder="https://..."
+                                                                        className="flex-1 min-w-0 text-sm px-3 py-2 rounded-lg border border-deep-blue/12 bg-white text-black placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-accent-blue/25 focus:border-accent-blue/40 transition-all shadow-sm" />
+                                                                    <a href={d.link || "#"} target={d.link ? "_blank" : undefined} rel="noopener noreferrer"
+                                                                        className={`flex-shrink-0 p-1.5 rounded-lg transition-colors ${d.link ? "bg-accent-blue text-white hover:bg-brand-blue" : "bg-black/5 text-black/20 pointer-events-none"}`}
+                                                                        title={d.link ? "Abrir" : "Sin enlace"}>
+                                                                        <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>open_in_new</span>
+                                                                    </a>
+                                                                </div>
+                                                                {details.docRefs.length > 1 && (
+                                                                    <button onClick={() => removeDocRef(criterio.id, di)} className="flex-shrink-0 p-1.5 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors" title="Eliminar">
+                                                                        <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>close</span>
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </DetailSection>
+
+                                                {/* Observaciones */}
+                                                <DetailSection icon="chat_bubble" label="Observaciones" onAdd={() => addObs(criterio.id)} addLabel="Añadir Observación">
+                                                    {details.observations.map((o, oi) => (
+                                                        <RowInput key={oi} value={o.text} placeholder={`Observación ${oi + 1}...`}
+                                                            onChange={(v) => updateObs(criterio.id, oi, v)}
+                                                            onRemove={details.observations.length > 1 ? () => removeObs(criterio.id, oi) : undefined}
+                                                        />
+                                                    ))}
+                                                </DetailSection>
                                             </div>
                                         )}
                                     </div>
