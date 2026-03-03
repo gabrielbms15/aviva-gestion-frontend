@@ -18,6 +18,9 @@ export type CriterioItem = {
 
 export type ScoreStatus = "NO_COMPLETADO" | "EN_PROGRESO" | "COMPLETADO";
 
+// 4-state for individual verifiers (score entries 0, 1, 2)
+export type VerifierStatus = "NONE" | "NO_CUMPLIDO" | "EN_PROGRESO" | "CUMPLIDO";
+
 type DocRef = { name: string; source: string; link: string };
 type ObsRow = { text: string };
 type RequirementRow = { text: string };
@@ -29,7 +32,7 @@ type CriterioDetails = {
     observations: ObsRow[];
 };
 
-type ScoreEntry = { status: ScoreStatus };
+type ScoreEntry = { status: VerifierStatus };
 
 type CriterioState = {
     scores: { [scoreIdx: number]: ScoreEntry };
@@ -43,6 +46,9 @@ export type LeaderInfo = {
     correo: string;
     unidad: "UPSS" | "UPS" | "";
     servicio: string;
+    fechaAsignacion: string;
+    fechaSeguimiento: string;
+    fechaEntrega: string;
 };
 
 /* ── Shared Constants ────────────────────────────────── */
@@ -73,23 +79,53 @@ export const STATUS_DOT: Record<ScoreStatus, { color: string; glow: string; labe
     COMPLETADO: { color: "bg-emerald-500", glow: "shadow-[0_0_6px_rgba(16,185,129,0.7)]", label: "Completado" },
 };
 
-/* ── Helpers ─────────────────────────────────────────── */
+// Verifier-level dot styles (4 states)
+export const VERIFIER_DOT: Record<VerifierStatus, { color: string; glow: string; label: string; border: string }> = {
+    NONE: { color: "bg-gray-300", glow: "", label: "No Iniciado", border: "border-gray-300" },
+    NO_CUMPLIDO: { color: "bg-red-500", glow: "shadow-[0_0_6px_rgba(239,68,68,0.7)]", label: "No Cumplido", border: "border-red-500" },
+    EN_PROGRESO: { color: "bg-amber-400", glow: "shadow-[0_0_6px_rgba(251,191,36,0.7)]", label: "En Progreso", border: "border-amber-400" },
+    CUMPLIDO: { color: "bg-emerald-500", glow: "shadow-[0_0_6px_rgba(16,185,129,0.7)]", label: "Cumplido", border: "border-emerald-500" },
+};
+
+// 4-state for criterio-level cards
+export type CriterioStatus = "NO_INICIADO" | "NO_CUMPLIDO" | "PARCIAL" | "CUMPLIDO";
+
+export const CRITERIO_DOT: Record<CriterioStatus, { color: string; glow: string; label: string }> = {
+    NO_INICIADO: { color: "bg-gray-300", glow: "", label: "No Iniciado" },
+    NO_CUMPLIDO: { color: "bg-red-500", glow: "shadow-[0_0_6px_rgba(239,68,68,0.7)]", label: "No Cumplido" },
+    PARCIAL: { color: "bg-amber-400", glow: "shadow-[0_0_6px_rgba(251,191,36,0.7)]", label: "Parcial" },
+    CUMPLIDO: { color: "bg-emerald-500", glow: "shadow-[0_0_6px_rgba(16,185,129,0.7)]", label: "Cumplido" },
+};
+
+export function deriveCriterioStatus(
+    criterioScores: ScoreLevel[],
+    savedScores: { [idx: number]: { status: VerifierStatus } } | undefined
+): CriterioStatus {
+    const get = (i: number): VerifierStatus => savedScores?.[i]?.status ?? "NONE";
+    const allNone = criterioScores.every((_, i) => get(i) === "NONE");
+    if (allNone) return "NO_INICIADO";
+    // Score 2 (highest) verde = Cumplido
+    if (criterioScores.length >= 3 && get(2) === "CUMPLIDO") return "CUMPLIDO";
+    // Score 0 rojo = No cumplido
+    if (get(0) === "NO_CUMPLIDO") return "NO_CUMPLIDO";
+    return "PARCIAL";
+}
 function initDetails(): CriterioDetails {
     return { requirements: [{ text: "" }], docRefs: [{ name: "", source: "", link: "" }], observations: [{ text: "" }] };
 }
 function initCriterioState(c: CriterioItem): CriterioState {
     const scores: CriterioState["scores"] = {};
-    c.scores.forEach((_, i) => { scores[i] = { status: "NO_COMPLETADO" }; });
+    c.scores.forEach((_, i) => { scores[i] = { status: "NONE" }; });
     return { scores, details: initDetails() };
 }
 function deriveStatus(criterioIds: string[], state: AllState): ScoreStatus {
     let allDone = true, anyProgress = false;
     for (const id of criterioIds) {
-        const cs = state[id]; if (!cs) { allDone = false; continue; }
+        const cs = state[id]; if (!cs?.scores) { allDone = false; continue; }
         for (const k of Object.keys(cs.scores)) {
             const st = cs.scores[Number(k)].status;
-            if (st !== "COMPLETADO") allDone = false;
-            if (st === "EN_PROGRESO") anyProgress = true;
+            if (st !== "CUMPLIDO") allDone = false;
+            if (st === "EN_PROGRESO" || st === "CUMPLIDO") anyProgress = true;
         }
     }
     return allDone ? "COMPLETADO" : anyProgress ? "EN_PROGRESO" : "NO_COMPLETADO";
@@ -106,7 +142,7 @@ type Props = {
 /* ── Main Shared Component ───────────────────────────── */
 export default function MacroprocesoManagementClient({ criterios, grupoLabels, lsStateKey, lsLeaderKey }: Props) {
     const defaultState: AllState = Object.fromEntries(criterios.map((c) => [c.id, initCriterioState(c)]));
-    const defaultLeader: LeaderInfo = { lider: "", correo: "", unidad: "", servicio: "" };
+    const defaultLeader: LeaderInfo = { lider: "", correo: "", unidad: "", servicio: "", fechaAsignacion: "", fechaSeguimiento: "", fechaEntrega: "" };
 
     const [state, setState] = useState<AllState>(defaultState);
     const [leader, setLeader] = useState<LeaderInfo>(defaultLeader);
@@ -119,15 +155,20 @@ export default function MacroprocesoManagementClient({ criterios, grupoLabels, l
             if (savedState) {
                 const parsed = JSON.parse(savedState);
                 // Validate new format: each entry must have .scores and .details
+                // AND score statuses must be valid VerifierStatus values
+                const VALID_STATUSES = new Set(["NONE", "NO_CUMPLIDO", "EN_PROGRESO", "CUMPLIDO"]);
                 const isNewFormat = parsed && typeof parsed === "object" &&
-                    Object.values(parsed).every((v) =>
-                        v && typeof v === "object" && "scores" in (v as object) && "details" in (v as object)
-                    );
+                    Object.values(parsed).every((v) => {
+                        if (!v || typeof v !== "object") return false;
+                        if (!("scores" in (v as object)) || !("details" in (v as object))) return false;
+                        const scores = (v as { scores?: Record<string, { status: string }> }).scores ?? {};
+                        return Object.values(scores).every(s => VALID_STATUSES.has(s?.status));
+                    });
                 if (isNewFormat) setState(parsed as AllState);
                 else localStorage.removeItem(lsStateKey); // wipe stale old-format data
             }
             const savedLeader = localStorage.getItem(lsLeaderKey);
-            if (savedLeader) setLeader(JSON.parse(savedLeader) as LeaderInfo);
+            if (savedLeader) setLeader({ ...defaultLeader, ...JSON.parse(savedLeader) as LeaderInfo });
         } catch { /* noop */ }
         setHydrated(true);
     }, [lsStateKey, lsLeaderKey]);
@@ -152,15 +193,21 @@ export default function MacroprocesoManagementClient({ criterios, grupoLabels, l
         setExpandedDetails(prev => ({ ...prev, [id]: !prev[id] }));
     }, []);
 
-    /* ── Score status ── */
-    const setScoreStatus = (criterioId: string, scoreIdx: number, status: ScoreStatus) => {
-        setState(prev => ({
-            ...prev,
-            [criterioId]: {
-                ...prev[criterioId],
-                scores: { ...prev[criterioId].scores, [scoreIdx]: { status } },
-            },
-        }));
+    /* ── Score status — with cascade for CUMPLIDO ── */
+    const setScoreStatus = (criterioId: string, scoreIdx: number, status: VerifierStatus) => {
+        setState(prev => {
+            const cs = prev[criterioId];
+            const newScores = { ...cs.scores };
+            // If setting CUMPLIDO, cascade down to all lower verifiers too
+            if (status === "CUMPLIDO") {
+                for (let i = 0; i <= scoreIdx; i++) {
+                    newScores[i] = { status: "CUMPLIDO" };
+                }
+            } else {
+                newScores[scoreIdx] = { status };
+            }
+            return { ...prev, [criterioId]: { ...cs, scores: newScores } };
+        });
     };
 
     /* ── Helpers: get details safely ── */
@@ -254,6 +301,22 @@ export default function MacroprocesoManagementClient({ criterios, grupoLabels, l
                         </div>
                     )}
                 </div>
+
+                {/* ── Fechas ── */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 pt-4 border-t border-white/40">
+                    <div>
+                        <label className="block text-xs font-semibold text-black/50 mb-1.5">Fecha de Asignación</label>
+                        <input type="date" value={leader.fechaAsignacion} onChange={(e) => setLeader(p => ({ ...p, fechaAsignacion: e.target.value }))} className={inputClass} />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-semibold text-black/50 mb-1.5">Fecha de Seguimiento</label>
+                        <input type="date" value={leader.fechaSeguimiento} onChange={(e) => setLeader(p => ({ ...p, fechaSeguimiento: e.target.value }))} className={inputClass} />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-semibold text-black/50 mb-1.5">Fecha de Entrega</label>
+                        <input type="date" value={leader.fechaEntrega} onChange={(e) => setLeader(p => ({ ...p, fechaEntrega: e.target.value }))} className={inputClass} />
+                    </div>
+                </div>
             </div>
 
             {/* ── Legend ───────────────────────────────────── */}
@@ -292,10 +355,9 @@ export default function MacroprocesoManagementClient({ criterios, grupoLabels, l
                         <div className="flex flex-col gap-5">
                             {items.map((criterio) => {
                                 const cs = state[criterio.id];
-                                const allDone = criterio.scores.every((_, i) => cs?.scores[i]?.status === "COMPLETADO");
-                                const anyProg = criterio.scores.some((_, i) => cs?.scores[i]?.status === "EN_PROGRESO");
-                                const cardStatus: ScoreStatus = allDone ? "COMPLETADO" : anyProg ? "EN_PROGRESO" : "NO_COMPLETADO";
-                                const cd = STATUS_DOT[cardStatus];
+                                const criterioStatus = deriveCriterioStatus(criterio.scores, cs?.scores);
+                                const cd = CRITERIO_DOT[criterioStatus];
+                                // Group-level card status (for section header dot) uses criterio statuses
                                 const isExpanded = expandedCriterio === criterio.id;
                                 const isDetailsExpanded = !!expandedDetails[criterio.id];
                                 const details = getDetails(criterio.id);
@@ -314,7 +376,7 @@ export default function MacroprocesoManagementClient({ criterios, grupoLabels, l
                                                     <span className="font-display font-black text-base text-white tracking-tight">{criterio.label}</span>
                                                 </div>
                                                 <div className="flex items-center gap-2">
-                                                    <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${cardStatus === "COMPLETADO" ? "bg-emerald-500/20 text-emerald-200" : cardStatus === "EN_PROGRESO" ? "bg-amber-400/20 text-amber-200" : "bg-red-500/20 text-red-200"}`}>{cd.label}</span>
+                                                    <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${criterioStatus === "CUMPLIDO" ? "bg-emerald-500/20 text-emerald-200" : criterioStatus === "NO_CUMPLIDO" ? "bg-red-500/20 text-red-200" : criterioStatus === "PARCIAL" ? "bg-amber-400/20 text-amber-200" : "bg-gray-400/20 text-gray-300"}`}>{cd.label}</span>
                                                     <span className={`material-symbols-outlined text-white/60 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} style={{ fontSize: "20px" }}>expand_more</span>
                                                 </div>
                                             </button>
@@ -340,19 +402,19 @@ export default function MacroprocesoManagementClient({ criterios, grupoLabels, l
                                         {isExpanded && (
                                             <div className="divide-y divide-deep-blue/5">
                                                 {criterio.scores.map((scoreLevel, idx) => {
-                                                    const scoreEntry = cs?.scores[idx] ?? { status: "NO_COMPLETADO" as ScoreStatus };
-                                                    const dot = STATUS_DOT[scoreEntry.status];
+                                                    const scoreEntry = cs?.scores[idx] ?? { status: "NONE" as VerifierStatus };
+                                                    const dot = VERIFIER_DOT[scoreEntry.status] ?? VERIFIER_DOT["NONE"];
 
                                                     return (
                                                         <div key={idx} className="flex items-start gap-3 px-5 py-3.5">
                                                             <div className="flex-shrink-0 mt-0.5 w-7 h-7 rounded-lg bg-deep-blue/10 flex items-center justify-center font-bold text-sm text-deep-blue">{scoreLevel.score}</div>
                                                             <p className="flex-1 text-sm text-black leading-relaxed pt-0.5">{scoreLevel.description}</p>
                                                             <div className="flex-shrink-0 flex items-center gap-1.5 ml-2 mt-1">
-                                                                {(["NO_COMPLETADO", "EN_PROGRESO", "COMPLETADO"] as ScoreStatus[]).map((st) => {
-                                                                    const d = STATUS_DOT[st]; const active = scoreEntry.status === st;
+                                                                {(["NO_CUMPLIDO", "EN_PROGRESO", "CUMPLIDO"] as VerifierStatus[]).map((st) => {
+                                                                    const d = VERIFIER_DOT[st]; const active = scoreEntry.status === st;
                                                                     return (
                                                                         <button key={st} title={d.label} onClick={() => setScoreStatus(criterio.id, idx, st)}
-                                                                            className={`w-4 h-4 rounded-full border-2 transition-all duration-200 hover:scale-125 active:scale-95 ${active ? `${d.color} border-transparent ${d.glow}` : `${d.color} opacity-25 border-transparent hover:opacity-50`}`}
+                                                                            className={`w-4 h-4 rounded-full border-2 transition-all duration-200 hover:scale-125 active:scale-95 ${active ? `${d.color} border-transparent ${d.glow}` : `${d.color} opacity-20 border-transparent hover:opacity-50`}`}
                                                                         />
                                                                     );
                                                                 })}

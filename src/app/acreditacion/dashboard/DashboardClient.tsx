@@ -99,16 +99,18 @@ function PieChart({ slices, meta }: { slices: PieSlice[]; meta: number }) {
 
 /* ── KPI Card ───────────────────────────────────────── */
 function KpiCard({
-    icon, label, value, meta, unit = "", sublabel, pieSlices, metaLabel = "Meta (90%)",
+    icon, label, value, meta, unit = "", sublabel, pieSlices, metaLabel = "Meta (90%)", className = "", glassMode = false,
 }: {
     icon: string; label: string; value: number; meta: number;
-    unit?: string; sublabel?: string; pieSlices?: PieSlice[]; metaLabel?: string;
+    unit?: string; sublabel?: string; pieSlices?: PieSlice[]; metaLabel?: string; className?: string; glassMode?: boolean;
 }) {
     const [showPie, setShowPie] = useState(false);
     const pct = Math.round((value / meta) * 100);
     const { bar, text } = getProgressColor(pct);
+    const tm = glassMode ? "text-black" : "text-black/40";
+    const ts = glassMode ? "text-black" : "text-black/30";
     return (
-        <div className="rounded-2xl bg-white border border-deep-blue/10 shadow-sm p-5 flex flex-col gap-3">
+        <div className={`${className || "rounded-2xl bg-white border border-deep-blue/10 shadow-sm"} p-5 flex flex-col gap-3`}>
             {/* Header row */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -137,40 +139,43 @@ function KpiCard({
                     <div className="flex items-end justify-between">
                         <div>
                             <span className="text-4xl font-display font-black text-deep-blue">{value}</span>
-                            <span className="text-sm font-semibold text-black/40 ml-1">{unit}</span>
+                            <span className={`text-sm font-semibold ${tm} ml-1`}>{unit}</span>
                         </div>
                         <div className="text-right">
-                            <p className="text-xs text-black/40">{metaLabel}</p>
+                            <p className={`text-xs ${tm}`}>{metaLabel}</p>
                             <p className="text-lg font-bold text-deep-blue/60">{meta}</p>
                         </div>
                     </div>
                     <div>
                         <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs text-black/40">Progreso hacia meta</span>
+                            <span className={`text-xs ${tm}`}>Progreso hacia meta</span>
                             <span className={`text-xs font-bold ${text}`}>{pct}%</span>
                         </div>
                         <div className="h-2 bg-black/5 rounded-full overflow-hidden">
                             <div className={`h-full rounded-full transition-all duration-500 ${bar}`} style={{ width: `${Math.min(pct, 100)}%` }} />
                         </div>
                     </div>
-                    {sublabel && <p className="text-xs text-black/30">{sublabel}</p>}
+                    {sublabel && <p className={`text-xs ${ts}`}>{sublabel}</p>}
                 </>
             )}
         </div>
     );
 }
 
-/* ── Overall Ring ───────────────────────────────────── */
-function OverallRing({ pct }: { pct: number }) {
+/* ── Overall Ring ─────────────────────────────────── */
+function OverallRing({ pct, glassMode, cardClass }: { pct: number; glassMode: boolean; cardClass: string }) {
     const r = 56;
     const circ = 2 * Math.PI * r;
     const filled = (pct / 100) * circ;
     const metaFilled = (META_PCT * 100 / 100) * circ;
     const { text } = getProgressColor(pct);
+    const tm = glassMode ? "text-black" : "text-black/50";
+    const tf = glassMode ? "text-black" : "text-black/30";
+    const tg = glassMode ? "text-black" : "text-black/40";
 
     return (
-        <div className="rounded-2xl bg-white border border-deep-blue/10 shadow-sm p-5 flex flex-col items-center justify-center gap-3">
-            <span className="text-xs font-bold text-black/50 uppercase tracking-wider">Progreso General</span>
+        <div className={`${cardClass} p-5 flex flex-col items-center justify-center gap-3`}>
+            <span className={`text-xs font-bold ${tm} uppercase tracking-wider`}>Progreso General</span>
             <div className="relative w-36 h-36">
                 <svg className="w-full h-full -rotate-90" viewBox="0 0 128 128">
                     {/* Track */}
@@ -185,10 +190,10 @@ function OverallRing({ pct }: { pct: number }) {
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
                     <span className={`text-3xl font-display font-black ${text}`}>{pct}%</span>
-                    <span className="text-[10px] text-black/30 font-semibold">de 90% meta</span>
+                    <span className={`text-[10px] ${tf} font-semibold`}>de 90% meta</span>
                 </div>
             </div>
-            <div className="flex items-center gap-4 text-xs text-black/40">
+            <div className={`flex items-center gap-4 text-xs ${tg}`}>
                 <span className="flex items-center gap-1"><span className="w-3 h-1 rounded-full bg-accent-blue/30 inline-block" /> Meta (90%)</span>
                 <span className="flex items-center gap-1"><span className="w-3 h-1 rounded-full bg-amber-400 inline-block" /> Actual</span>
             </div>
@@ -262,6 +267,15 @@ function GeneralRow({ mp }: { mp: Macroproceso }) {
 
 export default function DashboardClient() {
     const [viewMode, setViewMode] = useState<"progreso" | "general">("progreso");
+    const [glassMode, setGlassMode] = useState(false);
+    const cardClass = glassMode
+        ? "liquid-glass"
+        : "rounded-2xl bg-white border border-deep-blue/10 shadow-sm";
+    // In glass mode, muted grey text becomes black for legibility
+    const tm = glassMode ? "text-black" : "text-black/50"; // muted
+    const ts = glassMode ? "text-black" : "text-black/35"; // subtle
+    const tf = glassMode ? "text-black" : "text-black/30"; // faint
+    const th = glassMode ? "text-black" : "text-black/70"; // heavy muted
 
     const totalCriteriosActual = Math.round(
         MACROPROCESOS.reduce((sum, mp) => sum + (mp.progreso / 100) * mp.criterios, 0)
@@ -277,10 +291,89 @@ export default function DashboardClient() {
 
     // ── Real macroprocess states from localStorage ──────
     const [macroCardStates, setMacroCardStates] = useState<Record<string, { rojo: boolean; amarillo: boolean; verde: boolean }>>({});
+    // ── Real verifier states from all macroproceso pages ──
+    const [verifierCounts, setVerifierCounts] = useState({ ver1Cumplido: 0, ver2Cumplido: 0, totalCriterios: 0 });
+    const [criterioCounts, setCriterioCounts] = useState({ cumplido: 0, parcial: 0, noCumplido: 0, noIniciado: 0 });
+    const [estandarCounts, setEstandarCounts] = useState({ cumplido: 0, enProceso: 0, noCumplido: 0, noIniciado: 0 });
+
     useEffect(() => {
         try {
             const saved = localStorage.getItem("macro_card_states");
             if (saved) setMacroCardStates(JSON.parse(saved));
+        } catch { /* noop */ }
+        // Aggregate per-level verifier counts (ver1 and ver2 separately)
+        try {
+            const LS_KEYS = ["dlde_criteria_state", "nyc_criteria_state", "eif_criteria_state", "gim_criteria_state"];
+            let ver1Cumplido = 0, ver2Cumplido = 0, totalCriterios = 0;
+            for (const key of LS_KEYS) {
+                const raw = localStorage.getItem(key);
+                if (!raw) continue;
+                const allState = JSON.parse(raw) as Record<string, { scores?: Record<string, { status: string }> }>;
+                for (const cs of Object.values(allState)) {
+                    totalCriterios++;
+                    if (!cs?.scores) continue;
+                    if (cs.scores["2"]?.status === "CUMPLIDO") { ver2Cumplido++; ver1Cumplido++; continue; }
+                    if (cs.scores["1"]?.status === "CUMPLIDO") { ver1Cumplido++; }
+                }
+            }
+            setVerifierCounts({ ver1Cumplido, ver2Cumplido, totalCriterios });
+        } catch { /* noop */ }
+
+        // Aggregate criterio-level statuses
+        try {
+            const LS_KEYS = ["dlde_criteria_state", "nyc_criteria_state", "eif_criteria_state", "gim_criteria_state"];
+            let cCumplido = 0, cParcial = 0, cNoCumplido = 0, cNoIniciado = 0;
+            for (const key of LS_KEYS) {
+                const raw = localStorage.getItem(key);
+                if (!raw) continue;
+                const allState = JSON.parse(raw) as Record<string, { scores?: Record<string, { status: string }> }>;
+                for (const cs of Object.values(allState)) {
+                    if (!cs?.scores) { cNoIniciado++; continue; }
+                    const scoresArr = Object.values(cs.scores);
+                    const allNone = scoresArr.every(s => s.status === "NONE" || !s.status);
+                    if (allNone) { cNoIniciado++; continue; }
+                    if (cs.scores["2"]?.status === "CUMPLIDO") { cCumplido++; continue; }
+                    if (cs.scores["0"]?.status === "NO_CUMPLIDO") { cNoCumplido++; continue; }
+                    cParcial++;
+                }
+            }
+            setCriterioCounts({ cumplido: cCumplido, parcial: cParcial, noCumplido: cNoCumplido, noIniciado: cNoIniciado });
+        } catch { /* noop */ }
+
+        // Aggregate estándar-level statuses (group criterios by ID prefix e.g. DLDE1-1 → DLDE1)
+        try {
+            const LS_KEYS = ["dlde_criteria_state", "nyc_criteria_state", "eif_criteria_state", "gim_criteria_state"];
+            type CriterioSt = "CUMPLIDO" | "NO_CUMPLIDO" | "PARCIAL" | "NO_INICIADO";
+            const grupoMap: Record<string, CriterioSt[]> = {};
+            for (const key of LS_KEYS) {
+                const raw = localStorage.getItem(key);
+                if (!raw) continue;
+                const allState = JSON.parse(raw) as Record<string, { scores?: Record<string, { status: string }> }>;
+                for (const [criterioId, cs] of Object.entries(allState)) {
+                    const grupo = criterioId.split("-")[0]; // DLDE1, NYC2, etc.
+                    if (!grupoMap[grupo]) grupoMap[grupo] = [];
+                    // Derive criterio status
+                    let cSt: CriterioSt = "NO_INICIADO";
+                    if (cs?.scores) {
+                        const scoresArr = Object.values(cs.scores);
+                        const allNone = scoresArr.every(s => s.status === "NONE" || !s.status);
+                        if (!allNone) {
+                            if (cs.scores["2"]?.status === "CUMPLIDO") cSt = "CUMPLIDO";
+                            else if (cs.scores["0"]?.status === "NO_CUMPLIDO") cSt = "NO_CUMPLIDO";
+                            else cSt = "PARCIAL";
+                        }
+                    }
+                    grupoMap[grupo].push(cSt);
+                }
+            }
+            let eCumplido = 0, eEnProceso = 0, eNoCumplido = 0, eNoIniciado = 0;
+            for (const statuses of Object.values(grupoMap)) {
+                if (statuses.every(s => s === "CUMPLIDO")) eCumplido++;
+                else if (statuses.every(s => s === "NO_INICIADO")) eNoIniciado++;
+                else if (statuses.every(s => s === "NO_CUMPLIDO")) eNoCumplido++;
+                else eEnProceso++;
+            }
+            setEstandarCounts({ cumplido: eCumplido, enProceso: eEnProceso, noCumplido: eNoCumplido, noIniciado: eNoIniciado });
         } catch { /* noop */ }
     }, []);
 
@@ -290,18 +383,32 @@ export default function DashboardClient() {
     const macrosRojo = allCards.filter(d => d.rojo && !d.amarillo && !d.verde).length;
     const macrosNone = TOTAL_MACROPROCESOS - macrosVerde - macrosAmerillo - macrosRojo;
 
-    // ── Simulated pie distributions (replace with real data later) ──
+    // ── Verificadores pie — 2-level puntaje system ──
+    const TOTAL_VERIFICADORES = 656; // 328 criterios × 2 = max weighted score
+    const puntaje2 = verifierCounts.ver2Cumplido;
+    const puntaje1Genuino = verifierCounts.ver1Cumplido - verifierCounts.ver2Cumplido;
+    const sinPuntaje = Math.max(0, verifierCounts.totalCriterios - verifierCounts.ver1Cumplido);
+    const verificadorWeightedScore = puntaje1Genuino * 1 + puntaje2 * 2;
     const verificadoresPie = [
-        { label: "Cumplidos", value: totalCriteriosActual, color: "#10b981" },
-        { label: "En Progreso", value: Math.round(TOTAL_CRITERIOS * 0.18), color: "#f59e0b" },
-        { label: "No Cumplidos", value: Math.round(TOTAL_CRITERIOS * 0.12), color: "#ef4444" },
-        { label: "No Iniciados", value: TOTAL_CRITERIOS - totalCriteriosActual - Math.round(TOTAL_CRITERIOS * 0.18) - Math.round(TOTAL_CRITERIOS * 0.12), color: "#d1d5db" },
+        { label: "Puntaje 2", value: puntaje2, color: "#10b981" },
+        { label: "Puntaje 1", value: puntaje1Genuino, color: "#f59e0b" },
+        { label: "Sin puntaje", value: sinPuntaje, color: "#d1d5db" },
     ];
+    // ── Criterios pie — real data ──
+    const TOTAL_CRITERIOS_META = 328;
     const criteriosPie = [
-        { label: "Cumplidos", value: estandaresActual, color: "#10b981" },
-        { label: "En Progreso", value: Math.round(TOTAL_ESTANDARES * 0.18), color: "#f59e0b" },
-        { label: "No Cumplidos", value: Math.round(TOTAL_ESTANDARES * 0.10), color: "#ef4444" },
-        { label: "No Iniciados", value: TOTAL_ESTANDARES - estandaresActual - Math.round(TOTAL_ESTANDARES * 0.18) - Math.round(TOTAL_ESTANDARES * 0.10), color: "#d1d5db" },
+        { label: "Cumplidos", value: criterioCounts.cumplido, color: "#10b981" },
+        { label: "Parciales", value: criterioCounts.parcial, color: "#f59e0b" },
+        { label: "No Cumplidos", value: criterioCounts.noCumplido, color: "#ef4444" },
+        { label: "No Iniciados", value: criterioCounts.noIniciado, color: "#d1d5db" },
+    ];
+    // ── Estándares pie — real data ──
+    const TOTAL_ESTANDARES_META = 68;
+    const estandaresPie = [
+        { label: "Cumplidos", value: estandarCounts.cumplido, color: "#10b981" },
+        { label: "En Proceso", value: estandarCounts.enProceso, color: "#f59e0b" },
+        { label: "No Cumplidos", value: estandarCounts.noCumplido, color: "#ef4444" },
+        { label: "No Iniciados", value: estandarCounts.noIniciado, color: "#d1d5db" },
     ];
     const macrosPie = [
         { label: "Cumplidos", value: macrosVerde, color: "#10b981" },
@@ -312,16 +419,30 @@ export default function DashboardClient() {
 
     return (
         <div className="w-full">
+            {/* ── Glass Toggle — right-aligned, mirrors disclaimer position ── */}
+            <div className="flex justify-end -mt-16 mb-10 pointer-events-none">
+                <div className="inline-flex items-center gap-1 bg-white border border-deep-blue/10 rounded-full px-1.5 py-1 shadow-sm pointer-events-auto">
+                    <button
+                        onClick={() => setGlassMode(false)}
+                        className={`px-3 py-1 rounded-full text-xs font-bold transition-all duration-200 ${!glassMode ? "bg-deep-blue text-white shadow" : "text-black/40 hover:text-black/70"}`}
+                    >Regular</button>
+                    <button
+                        onClick={() => setGlassMode(true)}
+                        className={`px-3 py-1 rounded-full text-xs font-bold transition-all duration-200 ${glassMode ? "bg-deep-blue text-white shadow" : "text-black/40 hover:text-black/70"}`}
+                    >Glass</button>
+                </div>
+            </div>
+
             {/* ── Summary Row ──────────────────────────────── */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                <KpiCard icon="rule" label="Verificadores" value={totalCriteriosActual} meta={totalCriteriosMeta}
-                    sublabel={`de ${TOTAL_CRITERIOS} totales`} pieSlices={verificadoresPie} />
-                <KpiCard icon="library_books" label="Criterios" value={estandaresActual} meta={estandaresMeta}
-                    sublabel={`de ${TOTAL_ESTANDARES} totales`} pieSlices={criteriosPie} />
                 <KpiCard icon="grid_view" label="Macroprocesos" value={macrosVerde} meta={TOTAL_MACROPROCESOS}
-                    sublabel={`de ${TOTAL_MACROPROCESOS} totales`} pieSlices={macrosPie} metaLabel="Meta" />
-                <KpiCard icon="report_problem" label="En Riesgo" value={macrosAtRisk} meta={0}
-                    unit="macroprocesos" sublabel="por debajo del 30% de avance" />
+                    sublabel={`de ${TOTAL_MACROPROCESOS} totales`} pieSlices={macrosPie} metaLabel="Meta" className={cardClass} glassMode={glassMode} />
+                <KpiCard icon="bookmark" label="Estándares" value={estandarCounts.cumplido} meta={TOTAL_ESTANDARES_META}
+                    sublabel={`de ${TOTAL_ESTANDARES_META} totales`} pieSlices={estandaresPie} metaLabel="Meta" className={cardClass} glassMode={glassMode} />
+                <KpiCard icon="library_books" label="Criterios" value={criterioCounts.cumplido} meta={TOTAL_CRITERIOS_META}
+                    sublabel={`de ${TOTAL_CRITERIOS_META} totales`} pieSlices={criteriosPie} metaLabel="Meta" className={cardClass} glassMode={glassMode} />
+                <KpiCard icon="rule" label="Verificadores" value={verificadorWeightedScore} meta={TOTAL_VERIFICADORES}
+                    sublabel={`de ${TOTAL_VERIFICADORES} pts posibles`} pieSlices={verificadoresPie} metaLabel="Meta" className={cardClass} glassMode={glassMode} />
             </div>
 
             {/* ── Main Content ─────────────────────────────── */}
@@ -329,51 +450,57 @@ export default function DashboardClient() {
 
                 {/* Left column: ring + alert cards */}
                 <div className="flex flex-col gap-5">
-                    <OverallRing pct={overallPct} />
+                    <OverallRing pct={overallPct} glassMode={glassMode} cardClass={cardClass} />
 
                     {/* Highlight cards */}
-                    <div className="rounded-2xl bg-white border border-deep-blue/10 shadow-sm p-5">
-                        <h3 className="text-xs font-bold text-black/50 uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <div className={`${cardClass} p-5`}>
+                        <h3 className={`text-xs font-bold ${tm} uppercase tracking-wider mb-3 flex items-center gap-2`}>
                             <span className="material-symbols-outlined text-emerald-500" style={{ fontSize: "16px" }}>trending_up</span>
                             Más Avanzados
                         </h3>
                         {[...MACROPROCESOS].sort((a, b) => b.progreso - a.progreso).slice(0, 3).map(mp => (
                             <div key={mp.id} className="flex items-center gap-2 py-1.5">
-                                <span className="text-xs font-bold text-black/30 w-4">{mp.number}.</span>
-                                <span className="flex-1 text-xs text-black/70 truncate">{mp.name}</span>
+                                <span className={`text-xs font-bold ${tf} w-4`}>{mp.number}.</span>
+                                <span className={`flex-1 text-xs ${th} truncate`}>{mp.name}</span>
                                 <span className="text-xs font-bold text-emerald-600">{mp.progreso}%</span>
                             </div>
                         ))}
                     </div>
 
-                    <div className="rounded-2xl bg-white border border-red-100 shadow-sm p-5">
-                        <h3 className="text-xs font-bold text-black/50 uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <div className={`${cardClass} p-5`}>
+                        <h3 className={`text-xs font-bold ${tm} uppercase tracking-wider mb-3 flex items-center gap-2`}>
                             <span className="material-symbols-outlined text-red-400" style={{ fontSize: "16px" }}>trending_down</span>
                             Más Rezagados
                         </h3>
                         {[...MACROPROCESOS].sort((a, b) => a.progreso - b.progreso).slice(0, 3).map(mp => (
                             <div key={mp.id} className="flex items-center gap-2 py-1.5">
-                                <span className="text-xs font-bold text-black/30 w-4">{mp.number}.</span>
-                                <span className="flex-1 text-xs text-black/70 truncate">{mp.name}</span>
+                                <span className={`text-xs font-bold ${tf} w-4`}>{mp.number}.</span>
+                                <span className={`flex-1 text-xs ${th} truncate`}>{mp.name}</span>
                                 <span className="text-xs font-bold text-red-500">{mp.progreso}%</span>
                             </div>
                         ))}
                     </div>
 
-                    {/* Empty slot for future widget */}
-                    <div className="rounded-2xl border-2 border-dashed border-deep-blue/10 p-5 flex flex-col items-center justify-center gap-2 min-h-[120px] text-center">
-                        <span className="material-symbols-outlined text-deep-blue/20" style={{ fontSize: "28px" }}>add_chart</span>
-                        <span className="text-xs text-black/25 font-medium">Espacio para widget</span>
+                    {/* En Riesgo card — moved from KPI row */}
+                    <div className={`${cardClass} p-5`}>
+                        <h3 className={`text-xs font-bold ${tm} uppercase tracking-wider mb-3 flex items-center gap-2`}>
+                            <span className="material-symbols-outlined text-red-400" style={{ fontSize: "16px" }}>report_problem</span>
+                            En Riesgo
+                        </h3>
+                        <div className="flex items-end gap-2">
+                            <span className="text-3xl font-display font-black text-deep-blue">{macrosAtRisk}</span>
+                            <span className={`text-xs ${tm} mb-1 leading-tight`}>macroprocesos<br />bajo 30% de avance</span>
+                        </div>
                     </div>
                 </div>
 
                 {/* Right column: all 22 macroprocesos */}
-                <div className="lg:col-span-2 rounded-2xl bg-white border border-deep-blue/10 shadow-sm">
+                <div className={`lg:col-span-2 ${cardClass}`}>
                     <div className="px-5 pt-5 pb-3 border-b border-deep-blue/5">
                         <div className="flex items-center justify-between gap-3">
                             <div>
                                 <h2 className="font-display font-bold text-deep-blue text-base">Progreso por Macroproceso</h2>
-                                <p className="text-xs text-black/35 mt-0.5">
+                                <p className={`text-xs ${ts} mt-0.5`}>
                                     {viewMode === "progreso"
                                         ? "Barra superior = meta 90% · Barra inferior = progreso actual"
                                         : "Cantidad de criterios por macroproceso · ordenado de mayor a menor"}

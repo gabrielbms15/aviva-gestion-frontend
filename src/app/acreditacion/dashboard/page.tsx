@@ -35,10 +35,6 @@ export default function DashboardPage() {
                                 22 macroprocesos · 67 estándares · 328 criterios · Meta 90%
                             </p>
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-black/40 bg-white/70 border border-deep-blue/8 rounded-xl px-4 py-2.5">
-                            <span className="material-symbols-outlined text-amber-400" style={{ fontSize: "14px" }}>info</span>
-                            Datos simulados — conecta a tu sistema para datos reales
-                        </div>
                     </div>
 
                     <DashboardClient />
