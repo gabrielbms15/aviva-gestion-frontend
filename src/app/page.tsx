@@ -5,25 +5,25 @@ import LocationCard from "@/components/LocationCard";
 const locations = [
   {
     title: "Sede Lima Centro",
-    category: "HQ Location",
+    category: "Av. Óscar R. Benavides 443",
     description:
-      "Our flagship location offering comprehensive care with state-of-the-art technology and specialized medical staff available 24/7.",
+      "Sistema de gestión documentaria para la sede Lima Centro de la Clínica Aviva",
     image: "/lima_centro.webp",
     status: "Available 24/7",
   },
   {
     title: "Sede Los Olivos",
-    category: "Specialty",
+    category: "Av. Carlos Izaguirre 813",
     description:
-      "A dedicated specialty center focusing on advanced diagnostics and outpatient procedures in a calm, healing environment.",
+      "Sistema de gestión documentaria para la sede Los Olivos de la Clínica Aviva",
     image: "/los_olivos.webp",
     status: "Outpatient Care",
   },
   {
     title: "Medicentro San Martin",
-    category: "Family Care",
+    category: "Av. Tomas Valle 559",
     description:
-      "Focused on family medicine and pediatrics, providing accessible healthcare solutions for the entire community.",
+      "Sistema de gestión documentaria para la sede San Martin de la Clínica Aviva",
     image: "/medicentro.webp",
     status: "Pediatrics",
   },
