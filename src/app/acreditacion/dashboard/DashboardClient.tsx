@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 /* ── Data ───────────────────────────────────────────── */
 type Macroproceso = {
@@ -42,6 +42,364 @@ const TOTAL_CRITERIOS = 328;
 const TOTAL_ESTANDARES = 67;
 const TOTAL_MACROPROCESOS = 22;
 const META_PCT = 0.9; // 90%
+
+/* ── Progreso por Líder — datos ──────────────────────── */
+type LiderRow = {
+    mpId: string;
+    lider: string;
+    exigidos: number;
+    recibidos: number;
+    deadline: string; // YYYY-MM-DD
+};
+
+const LIDERES_DATA: LiderRow[] = [
+    { mpId: "DIR", lider: "Dra. Carmen Rios", exigidos: 28, recibidos: 18, deadline: "2026-04-15" },
+    { mpId: "GRH", lider: "Lic. Jorge Vega", exigidos: 22, recibidos: 10, deadline: "2026-03-20" },
+    { mpId: "GCA", lider: "Paula Ponce de León", exigidos: 6, recibidos: 3, deadline: "2026-03-30" },
+    { mpId: "MRA", lider: "Lic. Ana Flores", exigidos: 50, recibidos: 14, deadline: "2026-03-08" },
+    { mpId: "GSD", lider: "Dr. Miguel Torres", exigidos: 30, recibidos: 11, deadline: "2026-03-12" },
+    { mpId: "CGP", lider: "Lic. Patricia Mendez", exigidos: 24, recibidos: 15, deadline: "2026-04-02" },
+    { mpId: "ATA", lider: "Dra. Silvia Castro", exigidos: 27, recibidos: 14, deadline: "2026-03-28" },
+    { mpId: "AEX", lider: "Dr. Roberto Hurtado", exigidos: 18, recibidos: 4, deadline: "2026-03-07" },
+    { mpId: "ATH", lider: "Lic. Karina Salas", exigidos: 32, recibidos: 13, deadline: "2026-03-18" },
+    { mpId: "EMG", lider: "Dra. Monica Alva", exigidos: 22, recibidos: 16, deadline: "2026-04-10" },
+    { mpId: "ATQ", lider: "Dr. Fernando Ruiz", exigidos: 40, recibidos: 18, deadline: "2026-03-25" },
+    { mpId: "DIV", lider: "Lic. Claudia Nunez", exigidos: 20, recibidos: 4, deadline: "2026-03-06" },
+    { mpId: "ADT", lider: "Dr. Cesar Moran", exigidos: 25, recibidos: 14, deadline: "2026-04-05" },
+    { mpId: "ADA", lider: "Yovana Kina", exigidos: 4, recibidos: 0, deadline: "2026-03-25" },
+    { mpId: "RCR", lider: "Dr. Pablo Suarez", exigidos: 20, recibidos: 6, deadline: "2026-03-10" },
+    { mpId: "GMD", lider: "Lic. Isabel Chavez", exigidos: 28, recibidos: 13, deadline: "2026-03-27" },
+    { mpId: "GIF", lider: "Dr. Andres Pena", exigidos: 24, recibidos: 14, deadline: "2026-04-08" },
+    { mpId: "DLDE", lider: "Fiorella Chavez", exigidos: 6, recibidos: 1, deadline: "2026-03-25" },
+    { mpId: "MRS", lider: "Dra. Elena Reyes", exigidos: 16, recibidos: 11, deadline: "2026-03-20" },
+    { mpId: "NYD", lider: "Isel Zavala", exigidos: 4, recibidos: 0, deadline: "2026-03-26" },
+    { mpId: "GIM", lider: "Pedro Ipanaque", exigidos: 5, recibidos: 1, deadline: "2026-03-30" },
+    { mpId: "EIF", lider: "Carlos Grillo", exigidos: 4, recibidos: 0, deadline: "2026-03-24" },
+];
+
+const TODAY = new Date("2026-03-04");
+function daysUntil(dateStr: string): number {
+    const d = new Date(dateStr);
+    return Math.round((d.getTime() - TODAY.getTime()) / 86400000);
+}
+
+function Semaforo({ faltantes, days }: { faltantes: number; days: number }) {
+    let color = "bg-emerald-500", glow = "shadow-[0_0_8px_rgba(16,185,129,0.6)]";
+    let label = "En tiempo";
+    if (faltantes > 0) {
+        if (days < 5) { color = "bg-red-500"; glow = "shadow-[0_0_8px_rgba(239,68,68,0.6)]"; label = "Urgente"; }
+        else if (days <= 10) { color = "bg-amber-400"; glow = "shadow-[0_0_8px_rgba(251,191,36,0.6)]"; label = "Atención"; }
+    }
+    return <span className={`w-2.5 h-2.5 rounded-full ${color} ${glow} flex-shrink-0`} title={label} />;
+}
+
+/* ── Fechas data (6 specific macroprocesos) ────────────── */
+type FechaRow = {
+    mpId: string;
+    lider: string;
+    fechaAsignacion: string;
+    fechaSeguimiento: string | null; // null = "No asignado"
+    fechaEntrega: string;
+    documentos: string;
+};
+
+const FECHAS_DATA: FechaRow[] = [
+    { mpId: "GCA", lider: "Paula Ponce de León", fechaAsignacion: "2026-02-10", fechaSeguimiento: null, fechaEntrega: "2026-03-30", documentos: "6 / 3" },
+    { mpId: "ADA", lider: "Yovana Kina", fechaAsignacion: "2026-02-25", fechaSeguimiento: null, fechaEntrega: "2026-03-25", documentos: "4 / 0" },
+    { mpId: "DLDE", lider: "Fiorella Chavez", fechaAsignacion: "2026-02-25", fechaSeguimiento: null, fechaEntrega: "2026-03-25", documentos: "6 / 1" },
+    { mpId: "NYD", lider: "Isel Zavala", fechaAsignacion: "2026-02-25", fechaSeguimiento: null, fechaEntrega: "2026-03-26", documentos: "4 / 0" },
+    { mpId: "GIM", lider: "Pedro Ipanaque", fechaAsignacion: "2026-01-26", fechaSeguimiento: null, fechaEntrega: "2026-03-30", documentos: "5 / 1" },
+    { mpId: "EIF", lider: "Carlos Grillo", fechaAsignacion: "2026-02-24", fechaSeguimiento: null, fechaEntrega: "2026-03-24", documentos: "4 / 0" },
+];
+
+const FECHAS_IDS = new Set(FECHAS_DATA.map(f => f.mpId));
+
+function ProgresoLiderTable({ cardClass, glassMode }: { cardClass: string; glassMode: boolean }) {
+    const allIds = MACROPROCESOS.map(mp => mp.id);
+    const fechasIds = Array.from(FECHAS_IDS);
+    const [liderView, setLiderView] = useState<"progreso" | "fechas">("progreso");
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(allIds));
+    const [dropOpen, setDropOpen] = useState(false);
+    const dropRef = useRef<HTMLDivElement>(null);
+    const tm = glassMode ? "text-black" : "text-black/50";
+    const ts = glassMode ? "text-black" : "text-black/35";
+
+    // Close on outside click
+    useEffect(() => {
+        const handler = (e: MouseEvent) => {
+            if (dropRef.current && !dropRef.current.contains(e.target as Node)) setDropOpen(false);
+        };
+        document.addEventListener("mousedown", handler);
+        return () => document.removeEventListener("mousedown", handler);
+    }, []);
+
+    const toggleOne = (id: string) => setSelectedIds(prev => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        return next;
+    });
+    const selectAll = () => setSelectedIds(new Set(allIds));
+    const selectNone = () => setSelectedIds(new Set());
+    const progresoRows = MACROPROCESOS.map((mp, i) => {
+        const ld = LIDERES_DATA[i];
+        const faltantes = ld.exigidos - ld.recibidos;
+        const pct = Math.round((ld.recibidos / ld.exigidos) * 100);
+        const days = daysUntil(ld.deadline);
+        return { mp, ld, faltantes, pct, days };
+    }).filter(({ mp }) => selectedIds.has(mp.id));
+
+    // For Fechas view: filter by selectedIds too (scoped to FECHAS_IDS)
+    const fechasRows = FECHAS_DATA
+        .map(fd => ({ fd, mp: MACROPROCESOS.find(m => m.id === fd.mpId)! }))
+        .filter(({ mp }) => selectedIds.has(mp.id));
+
+    return (
+        <div className={`${cardClass} mt-6`}>
+            {/* Header */}
+            <div className="px-5 pt-5 pb-3 border-b border-deep-blue/5 flex items-center justify-between gap-4">
+                <div>
+                    <h2 className="font-display font-bold text-deep-blue text-base flex items-center gap-2">
+                        <span className="material-symbols-outlined text-accent-blue" style={{ fontSize: "18px" }}>manage_accounts</span>
+                        Progreso por Líder
+                    </h2>
+                    <p className={`text-xs ${ts} mt-0.5`}>Seguimiento documental por responsable de macroproceso</p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                    {/* Progreso | Fechas toggle */}
+                    <div className="flex items-center gap-1 bg-black/5 rounded-xl p-1">
+                        <button
+                            onClick={() => setLiderView("progreso")}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 ${liderView === "progreso" ? "bg-white text-deep-blue shadow-sm" : "text-black/40 hover:text-black/60"
+                                }`}
+                        >
+                            <span className="material-symbols-outlined" style={{ fontSize: "13px" }}>bar_chart</span>
+                            Progreso
+                        </button>
+                        <button
+                            onClick={() => setLiderView("fechas")}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 ${liderView === "fechas" ? "bg-white text-deep-blue shadow-sm" : "text-black/40 hover:text-black/60"
+                                }`}
+                        >
+                            <span className="material-symbols-outlined" style={{ fontSize: "13px" }}>calendar_month</span>
+                            Fechas
+                        </button>
+                    </div>
+                    {/* Excel-style filter dropdown */}
+                    <div className="relative" ref={dropRef}>
+                        <button
+                            onClick={() => setDropOpen(v => !v)}
+                            className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold border rounded-lg transition-all ${dropOpen ? "bg-deep-blue text-white border-deep-blue" : "border-deep-blue/15 text-deep-blue/70 hover:border-accent-blue/50 bg-white/70"
+                                }`}
+                        >
+                            <span className="material-symbols-outlined" style={{ fontSize: "15px" }}>filter_list</span>
+                            Filtrar
+                            {selectedIds.size < allIds.length && (
+                                <span className="bg-accent-blue text-white rounded-full px-1.5 py-0.5 text-[9px] font-black">{selectedIds.size}</span>
+                            )}
+                            <span className="material-symbols-outlined" style={{ fontSize: "13px" }}>
+                                {dropOpen ? "expand_less" : "expand_more"}
+                            </span>
+                        </button>
+
+                        {dropOpen && (
+                            <div className="absolute right-0 top-full mt-1 z-50 bg-white border border-deep-blue/10 rounded-xl shadow-xl w-64 py-1 max-h-80 overflow-y-auto custom-scrollbar">
+                                {/* Seleccionar Todo */}
+                                <button
+                                    onClick={selectAll}
+                                    className="w-full flex items-center gap-2 px-4 py-2 text-xs font-bold text-deep-blue hover:bg-deep-blue/5 transition-colors"
+                                >
+                                    <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center flex-shrink-0 ${selectedIds.size === (liderView === "progreso" ? allIds.length : fechasIds.length) ? "bg-accent-blue border-accent-blue" : "border-black/20"
+                                        }`}>
+                                        {selectedIds.size === (liderView === "progreso" ? allIds.length : fechasIds.length) && <span className="material-symbols-outlined text-white" style={{ fontSize: "10px" }}>check</span>}
+                                    </span>
+                                    Seleccionar Todo
+                                </button>
+                                {/* Ninguno */}
+                                <button
+                                    onClick={selectNone}
+                                    className="w-full flex items-center gap-2 px-4 py-2 text-xs font-bold text-black/40 hover:bg-black/4 transition-colors border-b border-deep-blue/5"
+                                >
+                                    <span className="w-3.5 h-3.5 rounded border-2 border-black/20 flex-shrink-0" />
+                                    (Ninguno)
+                                </button>
+                                {/* Individual macroprocesos (scoped to current view) */}
+                                {(liderView === "progreso" ? MACROPROCESOS : MACROPROCESOS.filter(m => FECHAS_IDS.has(m.id))).map(mp => (
+                                    <button
+                                        key={mp.id}
+                                        onClick={() => toggleOne(mp.id)}
+                                        className="w-full flex items-center gap-2.5 px-4 py-1.5 text-xs hover:bg-deep-blue/4 transition-colors text-left"
+                                    >
+                                        <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${selectedIds.has(mp.id) ? "bg-accent-blue border-accent-blue" : "border-black/20"
+                                            }`}>
+                                            {selectedIds.has(mp.id) && <span className="material-symbols-outlined text-white" style={{ fontSize: "10px" }}>check</span>}
+                                        </span>
+                                        <span className="text-black/30 font-bold w-5 flex-shrink-0">{mp.number}.</span>
+                                        <span className="text-black/70 truncate">{mp.name}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* Table — Progreso view */}
+            {liderView === "progreso" ? (
+                <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                        <thead>
+                            <tr className="border-b border-deep-blue/5">
+                                {["#", "Macroproceso", "Líder", "Exigidos", "Recibidos", "Faltantes", "Avance", "Deadline", "Días", ""].map(h => (
+                                    <th key={h} className={`px-4 py-2.5 text-left font-bold uppercase tracking-wider text-[10px] ${tm} whitespace-nowrap`}>{h}</th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {progresoRows.map(({ mp, ld, faltantes, pct, days }) => (
+                                <tr key={mp.id} className="border-b border-deep-blue/4 hover:bg-deep-blue/2 transition-colors">
+                                    {/* # */}
+                                    <td className={`px-4 py-3 font-bold ${tm}`}>{mp.number}.</td>
+                                    {/* Macroproceso */}
+                                    <td className="px-4 py-3">
+                                        <div className="flex items-center gap-2">
+                                            <span className="material-symbols-outlined text-accent-blue/60" style={{ fontSize: "14px" }}>{mp.icon}</span>
+                                            <span className="font-semibold text-deep-blue truncate max-w-[180px]" title={mp.name}>{mp.name}</span>
+                                        </div>
+                                    </td>
+                                    {/* Líder */}
+                                    <td className="px-4 py-3">
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="w-5 h-5 rounded-full bg-accent-blue/10 flex items-center justify-center text-[9px] font-bold text-accent-blue flex-shrink-0">
+                                                {ld.lider.split(" ").slice(-1)[0][0]}{ld.lider.split(" ").slice(-2)[0][0]}
+                                            </span>
+                                            <span className={`${ts} whitespace-nowrap`}>{ld.lider}</span>
+                                        </div>
+                                    </td>
+                                    {/* Exigidos */}
+                                    <td className="px-4 py-3 text-center font-mono font-bold text-deep-blue">{ld.exigidos}</td>
+                                    {/* Recibidos */}
+                                    <td className="px-4 py-3 text-center font-mono font-bold text-emerald-600">{ld.recibidos}</td>
+                                    {/* Faltantes */}
+                                    <td className="px-4 py-3 text-center">
+                                        {faltantes > 0
+                                            ? <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full bg-red-50 text-red-600 font-bold">
+                                                -{faltantes}
+                                            </span>
+                                            : <span className="inline-flex items-center gap-0.5 text-emerald-600 font-bold">
+                                                <span className="material-symbols-outlined" style={{ fontSize: "13px" }}>check_circle</span>
+                                            </span>
+                                        }
+                                    </td>
+                                    {/* Avance */}
+                                    <td className="px-4 py-3">
+                                        <div className="flex items-center gap-2 min-w-[90px]">
+                                            <div className="flex-1 h-1.5 bg-black/6 rounded-full overflow-hidden">
+                                                <div
+                                                    className={`h-full rounded-full transition-all ${pct >= 90 ? "bg-emerald-500" : pct >= 60 ? "bg-amber-400" : pct >= 30 ? "bg-orange-400" : "bg-red-400"
+                                                        }`}
+                                                    style={{ width: `${pct}%` }}
+                                                />
+                                            </div>
+                                            <span className={`font-bold whitespace-nowrap ${pct >= 90 ? "text-emerald-600" : pct >= 60 ? "text-amber-600" : pct >= 30 ? "text-orange-500" : "text-red-500"}`}>
+                                                {pct}%
+                                            </span>
+                                        </div>
+                                    </td>
+                                    {/* Deadline */}
+                                    <td className={`px-4 py-3 whitespace-nowrap font-mono ${ts}`}>
+                                        {new Date(ld.deadline).toLocaleDateString("es-PE", { day: "2-digit", month: "short", year: "numeric" })}
+                                    </td>
+                                    {/* Días */}
+                                    <td className="px-4 py-3 text-center">
+                                        <span className={`font-bold ${days < 0 ? "text-red-600" : days < 5 ? "text-red-500" : days <= 10 ? "text-amber-500" : "text-emerald-600"
+                                            }`}>
+                                            {days < 0 ? `Vencido` : `${days}d`}
+                                        </span>
+                                    </td>
+                                    {/* Semáforo */}
+                                    <td className="px-4 py-3">
+                                        <div className="flex items-center justify-center">
+                                            <Semaforo faltantes={faltantes} days={days} />
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                    {progresoRows.length === 0 && (
+                        <div className="py-10 text-center">
+                            <span className={`text-sm ${tm}`}>Sin macroprocesos seleccionados</span>
+                        </div>
+                    )}
+                </div>
+            ) : (
+                /* —— Fechas view —— */
+                <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                        <thead>
+                            <tr className="border-b border-deep-blue/5">
+                                {["#", "Macroproceso", "Líder", "Fecha Asignación", "Fecha Seguimiento", "Fecha Entrega", "Documentos"].map(h => (
+                                    <th key={h} className={`px-4 py-2.5 text-left font-bold uppercase tracking-wider text-[10px] ${tm} whitespace-nowrap`}>{h}</th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {fechasRows.map(({ fd, mp }) => (
+                                <tr key={mp.id} className="border-b border-deep-blue/4 hover:bg-deep-blue/2 transition-colors">
+                                    <td className={`px-4 py-3 font-bold ${tm}`}>{mp.number}.</td>
+                                    <td className="px-4 py-3">
+                                        <div className="flex items-center gap-2">
+                                            <span className="material-symbols-outlined text-accent-blue/60" style={{ fontSize: "14px" }}>{mp.icon}</span>
+                                            <span className="font-semibold text-deep-blue truncate max-w-[180px]" title={mp.name}>{mp.name}</span>
+                                        </div>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="w-5 h-5 rounded-full bg-accent-blue/10 flex items-center justify-center text-[9px] font-bold text-accent-blue flex-shrink-0">
+                                                {fd.lider.split(" ").pop()![0]}{fd.lider.split(" ").slice(-2)[0][0]}
+                                            </span>
+                                            <span className={`${ts} whitespace-nowrap`}>{fd.lider}</span>
+                                        </div>
+                                    </td>
+                                    <td className={`px-4 py-3 whitespace-nowrap font-mono text-deep-blue font-semibold`}>
+                                        {new Date(fd.fechaAsignacion).toLocaleDateString("es-PE", { day: "2-digit", month: "short", year: "numeric" })}
+                                    </td>
+                                    <td className="px-4 py-3">
+                                        {fd.fechaSeguimiento
+                                            ? <span className="font-mono text-deep-blue">{new Date(fd.fechaSeguimiento).toLocaleDateString("es-PE", { day: "2-digit", month: "short", year: "numeric" })}</span>
+                                            : <span className={`italic ${ts}`}>No asignado</span>
+                                        }
+                                    </td>
+                                    <td className={`px-4 py-3 whitespace-nowrap font-mono`}>
+                                        <span className={`font-bold ${daysUntil(fd.fechaEntrega) < 5 ? "text-red-500" : daysUntil(fd.fechaEntrega) <= 10 ? "text-amber-500" : "text-emerald-600"
+                                            }`}>
+                                            {new Date(fd.fechaEntrega).toLocaleDateString("es-PE", { day: "2-digit", month: "short", year: "numeric" })}
+                                        </span>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold bg-deep-blue/5 ${ts}`}>{fd.documentos}</span>
+                                    </td>
+                                </tr>
+                            ))}
+                            {fechasRows.length === 0 && (
+                                <tr><td colSpan={7} className="py-10 text-center">
+                                    <span className={`text-sm ${tm}`}>Sin macroprocesos seleccionados</span>
+                                </td></tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {/* Footer legend */}
+            <div className={`px-5 py-3 border-t border-deep-blue/5 flex items-center gap-5 text-[10px] ${ts}`}>
+                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500" />En tiempo o completo</span>
+                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-400" />5–10 días restantes</span>
+                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500" />Urgente (&lt;5 días con faltantes)</span>
+            </div>
+        </div>
+    );
+}
 
 function getProgressColor(pct: number): { bar: string; text: string } {
     if (pct >= 90) return { bar: "bg-emerald-500", text: "text-emerald-600" };
@@ -539,6 +897,9 @@ export default function DashboardClient() {
                     </div>
                 </div>
             </div>
+
+            {/* ── Progreso por Líder ───────────────────────────── */}
+            <ProgresoLiderTable cardClass={cardClass} glassMode={glassMode} />
         </div>
     );
 }
