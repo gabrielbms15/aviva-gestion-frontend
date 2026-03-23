@@ -18,6 +18,7 @@ const locations = [
       "Sistema de gestión documentaria para la sede Los Olivos de la Clínica Aviva",
     image: "/los_olivos.webp",
     status: "Outpatient Care",
+    href: "/sede-los-olivos",
   },
   {
     title: "Medicentro San Martin",
