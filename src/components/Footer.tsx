@@ -17,8 +17,7 @@ export default function Footer() {
                             />
                         </Link>
                         <p className="text-light-bg/60 text-sm leading-relaxed font-light">
-                            Redefining the patient experience through innovative design and
-                            world-class medical care.
+                            Logramos, con trato amable, que más peruanos vivan sanos para conquistar sus sueños.
                         </p>
                     </div>
                     <div>

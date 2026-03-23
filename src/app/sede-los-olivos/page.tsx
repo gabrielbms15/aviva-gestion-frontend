@@ -1,9 +1,11 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ServiceCard from "@/components/ServiceCard";
+import { services } from "@/data/los-olivos";
 import {
   Stethoscope,
   Activity,
@@ -26,54 +28,55 @@ import {
   Car,
   Users,
   CreditCard,
-  ClipboardList
+  ClipboardList,
 } from "lucide-react";
+import { LucideIcon } from "lucide-react";
 
-const upssData = [
-  { title: "Consulta Externa", icon: Stethoscope },
-  { title: "Central de Esterilización", icon: Activity },
-  { title: "Centro Quirúrgico", icon: HeartPulse, image: "/cequ.webp" },
-  { title: "Centro Obstétrico", icon: Baby },
-  { title: "Emergencia", icon: Ambulance },
-  { title: "Hospitalización", icon: BedDouble },
-  { title: "Farmacia", icon: Pill },
-  { title: "Unidad de Cuidados Intensivos", icon: HeartPulse },
-  { title: "Nutrición y Dietética", icon: Utensils },
-  { title: "Diagnóstico por Imágenes", icon: Activity, image: "/imag.webp" },
-  { title: "Laboratorio (Patología Clínica)", icon: Microscope },
-  { title: "Anatomia Patologica", icon: Dna },
-  { title: "Hemoterapia y Banco de Sange", icon: Droplets },
-  { title: "Medicina Física y Rehabilitación", icon: Activity },
-];
+// Map of slug → icon (image is pulled from the data file)
+const iconMap: Record<string, LucideIcon> = {
+  "consulta-externa": Stethoscope,
+  "central-de-esterilizacion": Activity,
+  "centro-quirurgico": HeartPulse,
+  "centro-obstetrico": Baby,
+  "emergencia": Ambulance,
+  "hospitalizacion": BedDouble,
+  "farmacia": Pill,
+  "unidad-de-cuidados-intensivos": HeartPulse,
+  "nutricion-y-dietetica": Utensils,
+  "diagnostico-por-imagenes": Activity,
+  "laboratorio": Microscope,
+  "anatomia-patologica": Dna,
+  "hemoterapia-y-banco-de-sangre": Droplets,
+  "medicina-fisica-y-rehabilitacion": Activity,
+  "equipamiento-e-infraestructura": Settings,
+  "gestion-de-la-informacion": FileText,
+  "lavanderia-y-roperia": Umbrella,
+  "limpieza-y-desinfeccion": Trash,
+  "mantenimiento": Wrench,
+  "residuos-solidos": Trash,
+  "salud-ambiental": Activity,
+  "seguridad-y-vigilancia": Shield,
+  "soporte-tecnologico": Monitor,
+  "transporte": Car,
+  "admision": Users,
+  "archivo-clinico": ClipboardList,
+  "caja": CreditCard,
+  "seguros": Shield,
+};
 
-const upsData = [
-  { title: "Equipamiento e Infraestructura", icon: Settings, image: "/mant.webp" },
-  { title: "Gestión de la Información", icon: FileText },
-  { title: "Lavandería y Ropería", icon: Umbrella },
-  { title: "Limpieza y Desinfección", icon: Trash },
-  { title: "Mantenimiento", icon: Wrench },
-  { title: "Residuos Sólidos", icon: Trash },
-  { title: "Salud Ambiental", icon: Activity },
-  { title: "Seguridad y Vigilancia", icon: Shield },
-  { title: "Soporte Tecnológico", icon: Monitor },
-  { title: "Transporte", icon: Car },
-  { title: "Admisión", icon: Users },
-  { title: "Archivo Clínico", icon: ClipboardList },
-  { title: "Caja", icon: CreditCard },
-  { title: "Seguros", icon: Shield },
-];
+const upssEntries = Object.entries(services).filter(([, v]) => v.section === "upss");
+const upsEntries  = Object.entries(services).filter(([, v]) => v.section === "ups");
 
 export default function SedeLosOlivosPage() {
   const [activeTab, setActiveTab] = useState<"upss" | "ups">("upss");
-
-  const activeData = activeTab === "upss" ? upssData : upsData;
+  const activeEntries = activeTab === "upss" ? upssEntries : upsEntries;
 
   return (
     <>
       <Header />
       <main className="flex-grow relative z-10 py-20 lg:py-28 flex flex-col items-center bg-light-bg min-h-screen">
         <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 relative z-10">
-          
+
           <div className="flex flex-col items-center justify-center mb-16 text-center">
             <div className="flex items-center gap-4 mb-4">
               <div className="h-[1px] w-12 bg-accent-blue"></div>
@@ -114,15 +117,15 @@ export default function SedeLosOlivosPage() {
 
           <div className="flex justify-center w-full">
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-6 gap-y-12 justify-items-center w-full max-w-[1000px]">
-              {activeData.map((item, idx) => (
-                <ServiceCard
-                  key={idx}
-                  title={item.title}
-                  icon={item.icon}
-                  image={"image" in item ? ((item as any).image as string) : undefined}
-                  colorTheme={activeTab}
-                  onClick={() => console.log(`Clicked ${item.title}`)}
-                />
+              {activeEntries.map(([slug, data]) => (
+                <Link key={slug} href={`/sede-los-olivos/${slug}`} className="contents">
+                  <ServiceCard
+                    title={data.label}
+                    icon={iconMap[slug] ?? Activity}
+                    image={data.image}
+                    colorTheme={activeTab}
+                  />
+                </Link>
               ))}
             </div>
           </div>
